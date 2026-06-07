@@ -1,0 +1,7 @@
+{
+    "speech_speed": 0,
+    "max_speech_length": 1000,
+    "speech_volume": 100,
+    "bubble_max_height": 100,
+    "speak_dir": "C:\\Users\\user\\OneDrive\\Speak"
+}
