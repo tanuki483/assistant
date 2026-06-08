@@ -16,6 +16,7 @@ class MascotWindow:
         # Window setup
         self.root.overrideredirect(True)
         self.root.wm_attributes("-topmost", True)
+        self.root.wm_attributes("-toolwindow", True)
         # 白黒線画のフチに色が出ないよう、限りなく黒に近い色を透過色に設定
         self.transparent_color = "#000001"
         self.root.wm_attributes("-transparentcolor", self.transparent_color)
