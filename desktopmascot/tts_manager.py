@@ -59,12 +59,9 @@ class TTSManager:
         
         ps_script = f"Add-Type -AssemblyName System.speech; $speak = New-Object System.Speech.Synthesis.SpeechSynthesizer; $speak.Rate = {speed}; $speak.Volume = {vol}; $speak.Speak('{safe_text}')"
         
-        def _run_tts():
-            subprocess.run(["powershell", "-Command", ps_script], creationflags=subprocess.CREATE_NO_WINDOW)
-            if self.on_speak_done_callback:
-                self.on_speak_done_callback()
-                
-        threading.Thread(target=_run_tts, daemon=True).start()
+        subprocess.run(["powershell", "-Command", ps_script], creationflags=subprocess.CREATE_NO_WINDOW)
+        if self.on_speak_done_callback:
+            self.on_speak_done_callback()
 
     def _poll(self):
         while self.running:
