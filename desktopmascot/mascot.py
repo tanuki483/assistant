@@ -396,7 +396,8 @@ class MascotWindow:
         listbox.pack(side='left', fill='both', expand=True)
         
         mascot_hwnds = [m.get_hwnd() for m in self.all_mascots]
-        windows_info = self.win_manager.get_windows_on_monitor(self.display_info['hMonitor'], mascot_hwnds)
+        current_monitor = self.win_manager.get_window_monitor(self.get_hwnd())
+        windows_info = self.win_manager.get_windows_on_monitor(current_monitor, mascot_hwnds)
         windows_info.sort(key=lambda w: w['title'])
         
         self.wm_hwnds = []
@@ -453,8 +454,7 @@ class MascotWindow:
 
     def exit_app(self):
         self.tts_manager.stop()
-        for mascot in self.all_mascots:
-            mascot.root.destroy()
+        self.root.master.destroy()
 
     def show_speech(self, text):
         if self.bubble:

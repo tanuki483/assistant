@@ -33,9 +33,9 @@ class WindowManager:
         user32.EnumDisplayMonitors(0, 0, MonitorEnumProc(callback), 0)
         return displays
 
-    def _get_window_monitor(self, hwnd):
-        MONITOR_DEFAULTTONULL = 0
-        return user32.MonitorFromWindow(hwnd, MONITOR_DEFAULTTONULL)
+    def get_window_monitor(self, hwnd):
+        MONITOR_DEFAULTTONEAREST = 2
+        return user32.MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST)
 
     def _is_minimizable_window(self, hwnd):
         if not user32.IsWindowVisible(hwnd):
@@ -103,7 +103,7 @@ class WindowManager:
             if not self._is_minimizable_window(hwnd):
                 return True
             
-            win_monitor = self._get_window_monitor(hwnd)
+            win_monitor = self.get_window_monitor(hwnd)
             if win_monitor == monitor_handle:
                 length = user32.GetWindowTextLengthW(hwnd)
                 buff = ctypes.create_unicode_buffer(length + 1)
