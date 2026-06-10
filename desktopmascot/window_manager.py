@@ -69,7 +69,7 @@ class WindowManager:
         to_restore = []
         for hwnd in self.minimized_windows:
             if user32.IsWindow(hwnd):
-                win_monitor = self._get_window_monitor(hwnd)
+                win_monitor = self.get_window_monitor(hwnd)
                 if win_monitor == monitor_handle:
                     to_restore.append(hwnd)
         
@@ -85,7 +85,7 @@ class WindowManager:
                     continue
                 
                 if self._is_minimizable_window(hwnd):
-                    win_monitor = self._get_window_monitor(hwnd)
+                    win_monitor = self.get_window_monitor(hwnd)
                     if win_monitor == monitor_handle:
                         if not user32.IsIconic(hwnd):
                             user32.ShowWindow(hwnd, SW_MINIMIZE)

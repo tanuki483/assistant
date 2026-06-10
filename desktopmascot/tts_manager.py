@@ -34,7 +34,8 @@ class TTSManager:
                 "speech_speed": 0, # -10 to 10
                 "max_speech_length": 100,
                 "speech_volume": 100,
-                "bubble_max_height": 100
+                "bubble_max_height": 100,
+                "tts_enabled": True
             }
             self.save_config()
 
@@ -43,6 +44,9 @@ class TTSManager:
             json.dump(self.config, f, indent=4)
 
     def speak(self, text):
+        if not self.config.get("tts_enabled", True):
+            return
+            
         max_len = self.config.get("max_speech_length", 100)
         if len(text) > max_len:
             text = text[:max_len] + "..."
@@ -59,9 +63,18 @@ class TTSManager:
         
         ps_script = f"Add-Type -AssemblyName System.speech; $speak = New-Object System.Speech.Synthesis.SpeechSynthesizer; $speak.Rate = {speed}; $speak.Volume = {vol}; $speak.Speak('{safe_text}')"
         
-        subprocess.run(["powershell", "-Command", ps_script], creationflags=subprocess.CREATE_NO_WINDOW)
+        self.current_process = subprocess.Popen(["powershell", "-Command", ps_script], creationflags=subprocess.CREATE_NO_WINDOW)
+        self.current_process.wait()
+        
         if self.on_speak_done_callback:
             self.on_speak_done_callback()
+
+    def abort_speech(self):
+        if hasattr(self, 'current_process') and self.current_process:
+            try:
+                self.current_process.terminate()
+            except Exception:
+                pass
 
     def _poll(self):
         while self.running:

@@ -24,11 +24,33 @@ class MascotWindow:
         
         # Load image
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        img_path = os.path.join(base_dir, "cat.png")
+        gif_path = os.path.join(base_dir, "cat.gif")
+        png_path = os.path.join(base_dir, "cat.png")
         self.width, self.height = 100, 100
-        if os.path.exists(img_path):
+        self.frames = []
+        self.current_frame = 0
+
+        if os.path.exists(gif_path):
             try:
-                self.img = tk.PhotoImage(file=img_path)
+                while True:
+                    frame = tk.PhotoImage(file=gif_path, format=f"gif -index {len(self.frames)}")
+                    self.frames.append(frame)
+            except tk.TclError:
+                pass
+
+            if self.frames:
+                self.img = self.frames[0]
+                self.width = self.img.width()
+                self.height = self.img.height()
+                self.label = tk.Label(self.root, image=self.img, bg=self.transparent_color, bd=0)
+                if len(self.frames) > 1:
+                    self.root.after(100, self.animate_gif)
+            else:
+                self._fallback_ui()
+
+        elif os.path.exists(png_path):
+            try:
+                self.img = tk.PhotoImage(file=png_path)
                 self.width = self.img.width()
                 self.height = self.img.height()
                 self.label = tk.Label(self.root, image=self.img, bg=self.transparent_color, bd=0)
@@ -70,6 +92,12 @@ class MascotWindow:
         self.label = tk.Label(self.root, text="cat.png\n(Not Found)", bg="orange", fg="white", font=("Arial", 12, "bold"))
         self.label.place(x=0, y=0, width=self.width, height=self.height)
         self.root.wm_attributes("-transparentcolor", "") # Disable transparency so we can see the fallback bg
+
+    def animate_gif(self):
+        if hasattr(self, 'label') and self.frames:
+            self.current_frame = (self.current_frame + 1) % len(self.frames)
+            self.label.configure(image=self.frames[self.current_frame])
+            self.root.after(100, self.animate_gif)
 
     def _make_draggable(self, window, widgets):
         def on_press(event):
@@ -126,9 +154,10 @@ class MascotWindow:
         self.shake_count = 0
 
     def trigger_shake_action(self):
-        print(f"Shake triggered on monitor {self.display_info['hMonitor']}")
+        current_monitor = self.win_manager.get_window_monitor(self.get_hwnd())
+        print(f"Shake triggered on monitor {current_monitor}")
         mascot_hwnds = [m.get_hwnd() for m in self.all_mascots]
-        self.win_manager.toggle_minimize_on_monitor(self.display_info['hMonitor'], mascot_hwnds)
+        self.win_manager.toggle_minimize_on_monitor(current_monitor, mascot_hwnds)
 
     def show_menu(self, event):
         if hasattr(self, 'menu_bubble') and self.menu_bubble:
@@ -227,7 +256,7 @@ class MascotWindow:
         canvas.pack(fill="both", expand=True)
         
         width = 280
-        height = 190
+        height = 220
         padding = 15
         tail_width = 15
         tail_height = 15
@@ -260,6 +289,10 @@ class MascotWindow:
         
         title_lbl = tk.Label(frame, text='読み上げ設定', font=('Meiryo', 10, 'bold'), bg='white')
         title_lbl.pack(pady=(0,5))
+        
+        tts_enabled_var = tk.BooleanVar(value=self.tts_manager.config.get('tts_enabled', True))
+        chk_tts = tk.Checkbutton(frame, text="読み上げを有効にする", variable=tts_enabled_var, bg='white')
+        chk_tts.pack(pady=(0,5))
         
         speed_var = tk.IntVar(value=self.tts_manager.config.get('speech_speed', 0))
         len_var = tk.IntVar(value=self.tts_manager.config.get('max_speech_length', 100))
@@ -302,6 +335,7 @@ class MascotWindow:
         
         def save():
             try:
+                self.tts_manager.config['tts_enabled'] = tts_enabled_var.get()
                 self.tts_manager.config['speech_speed'] = speed_var.get()
                 self.tts_manager.config['max_speech_length'] = len_var.get()
                 self.tts_manager.config['bubble_max_height'] = height_var.get()
@@ -522,7 +556,7 @@ class MascotWindow:
         # Close button (top right)
         x_btn = tk.Label(self.bubble, text='✖', bg='white', fg='gray', font=('Arial', 12, 'bold'), cursor='hand2')
         x_btn.place(x=rect_x2 - 25, y=rect_y1 + 5)
-        x_btn.bind('<Button-1>', lambda e: self.hide_speech())
+        x_btn.bind('<Button-1>', lambda e: self.hide_speech(abort=True))
 
         self._make_draggable(self.bubble, [canvas, frame])
 
@@ -538,7 +572,9 @@ class MascotWindow:
             
         self.bubble.geometry(f"{cw}x{ch}+{bx}+{by}")
 
-    def hide_speech(self):
+    def hide_speech(self, abort=False):
+        if abort:
+            self.tts_manager.abort_speech()
         if self.bubble:
             self.bubble.destroy()
             self.bubble = None
