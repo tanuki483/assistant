@@ -4,6 +4,7 @@ import os
 import time
 from tts_manager import TTSManager
 from window_manager import WindowManager
+from clock_widget import ClockWidget, TimerWidget
 
 class MascotWindow:
     def __init__(self, root, display_info, win_manager, tts_manager, all_mascots):
@@ -12,6 +13,9 @@ class MascotWindow:
         self.win_manager = win_manager
         self.tts_manager = tts_manager
         self.all_mascots = all_mascots
+        
+        self.clocks = []
+        self.timers = []
         
         # Window setup
         self.root.overrideredirect(True)
@@ -134,16 +138,20 @@ class MascotWindow:
         current_time = time.time()
         move_x = self.x - self.last_x
         
-        if abs(move_x) > 10:
+        shake_dist = self.tts_manager.config.get('shake_dist', 10.0)
+        shake_time = self.tts_manager.config.get('shake_time', 0.5)
+        shake_count_thresh = self.tts_manager.config.get('shake_count', 3)
+        
+        if abs(move_x) > shake_dist:
             current_dir = 1 if move_x > 0 else -1
             if current_dir != self.last_dir and self.last_dir != 0:
-                if current_time - self.last_shake_time < 0.5:
+                if current_time - self.last_shake_time < shake_time:
                     self.shake_count += 1
                 else:
                     self.shake_count = 1
                 self.last_shake_time = current_time
                 
-                if self.shake_count >= 3: # Shaken back and forth 3 times
+                if self.shake_count >= shake_count_thresh:
                     self.trigger_shake_action()
                     self.shake_count = 0
             
@@ -160,9 +168,9 @@ class MascotWindow:
         self.win_manager.toggle_minimize_on_monitor(current_monitor, mascot_hwnds)
 
     def show_menu(self, event):
-        if hasattr(self, 'menu_bubble') and self.menu_bubble:
+        if hasattr(self, 'menu_bubble') and self.menu_bubble and self.menu_bubble.winfo_exists():
             self.menu_bubble.destroy()
-            
+            return
         self.menu_bubble = tk.Toplevel(self.root)
         self.menu_bubble.overrideredirect(True)
         self.menu_bubble.wm_attributes("-topmost", True)
@@ -172,8 +180,8 @@ class MascotWindow:
         canvas = tk.Canvas(self.menu_bubble, bg=self.transparent_color, highlightthickness=0)
         canvas.pack(fill="both", expand=True)
         
-        width = 150
-        height = 140
+        width = 160
+        height = 280
         padding = 15
         tail_width = 15
         tail_height = 15
@@ -213,6 +221,27 @@ class MascotWindow:
             
         btn_settings = tk.Button(frame, text="読み上げ設定...", command=open_settings_and_close, bg='#f0f0f0', relief='solid', bd=1, width=15)
         btn_settings.pack(pady=5)
+        
+        def spawn_clock_and_close():
+            self.menu_bubble.destroy()
+            self.clocks.append(ClockWidget(self.root, self.tts_manager))
+            
+        btn_clock = tk.Button(frame, text="時計", command=spawn_clock_and_close, bg='#f0f0f0', relief='solid', bd=1, width=15)
+        btn_clock.pack(pady=5)
+        
+        def spawn_timer_and_close():
+            self.menu_bubble.destroy()
+            self.timers.append(TimerWidget(self.root, self.tts_manager))
+            
+        btn_timer = tk.Button(frame, text="タイマー", command=spawn_timer_and_close, bg='#f0f0f0', relief='solid', bd=1, width=15)
+        btn_timer.pack(pady=5)
+        
+        def open_sens_and_close():
+            self.menu_bubble.destroy()
+            self.open_sensitivity_settings()
+            
+        btn_sens = tk.Button(frame, text="詳細設定...", command=open_sens_and_close, bg='#f0f0f0', relief='solid', bd=1, width=15)
+        btn_sens.pack(pady=5)
         
         def open_wm_and_close():
             self.menu_bubble.destroy()
@@ -370,6 +399,160 @@ class MascotWindow:
             bx = self.display_info['x']
             
         self.settings_bubble.geometry(f"{cw}x{ch}+{bx}+{by}")
+
+    def open_sensitivity_settings(self):
+        if hasattr(self, 'sens_bubble') and self.sens_bubble:
+            self.sens_bubble.destroy()
+            
+        self.sens_bubble = tk.Toplevel(self.root)
+        self.sens_bubble.overrideredirect(True)
+        self.sens_bubble.wm_attributes("-topmost", True)
+        self.sens_bubble.wm_attributes("-transparentcolor", self.transparent_color)
+        self.sens_bubble.config(bg=self.transparent_color)
+        
+        canvas = tk.Canvas(self.sens_bubble, bg=self.transparent_color, highlightthickness=0)
+        canvas.pack(fill="both", expand=True)
+        
+        width = 300
+        height = 540
+        padding = 15
+        tail_width = 15
+        tail_height = 15
+        border_width = 6
+        border_color = 'gray'
+        offset = border_width // 2
+        
+        rect_w = width + padding * 2
+        rect_h = height + padding * 2
+        
+        cw = rect_w + border_width
+        ch = rect_h + tail_height + border_width
+        
+        rect_x1, rect_y1 = offset, offset
+        rect_x2, rect_y2 = rect_w + offset, rect_h + offset
+        
+        tail_center_x = rect_w - 40 + offset
+        tail_tip_x = tail_center_x
+        tail_tip_y = rect_y2 + tail_height
+        tail_base_x1 = tail_center_x - tail_width // 2
+        tail_base_x2 = tail_center_x + tail_width // 2
+        
+        canvas.config(width=cw, height=ch)
+        
+        canvas.create_polygon(tail_base_x1, rect_y2, tail_base_x2, rect_y2, tail_tip_x, tail_tip_y, fill='white', outline=border_color, width=border_width)
+        canvas.create_rectangle(rect_x1, rect_y1, rect_x2, rect_y2, fill='white', outline=border_color, width=border_width)
+        canvas.create_line(tail_base_x1 + offset, rect_y2, tail_base_x2 - offset, rect_y2, fill='white', width=border_width)
+        
+        frame = tk.Frame(canvas, bg='white')
+        
+        title_lbl = tk.Label(frame, text='詳細設定', font=('Meiryo', 10, 'bold'), bg='white')
+        title_lbl.pack(pady=(0,5))
+        
+        tk.Label(frame, text='【最小化（感度調整）】', bg='white', font=('Meiryo', 8, 'bold')).pack(anchor='w', pady=(5,0))
+        
+        dist_var = tk.DoubleVar(value=self.tts_manager.config.get('shake_dist', 10.0))
+        time_var = tk.DoubleVar(value=self.tts_manager.config.get('shake_time', 0.5))
+        count_var = tk.IntVar(value=self.tts_manager.config.get('shake_count', 3))
+        
+        f1 = tk.Frame(frame, bg='white')
+        f1.pack(fill='x', pady=2)
+        tk.Label(f1, text='判定距離 (px):', bg='white').pack(side='left')
+        tk.Entry(f1, textvariable=dist_var, width=8).pack(side='right')
+        
+        f2 = tk.Frame(frame, bg='white')
+        f2.pack(fill='x', pady=2)
+        tk.Label(f2, text='判定時間 (秒):', bg='white').pack(side='left')
+        tk.Entry(f2, textvariable=time_var, width=8).pack(side='right')
+        
+        f3 = tk.Frame(frame, bg='white')
+        f3.pack(fill='x', pady=2)
+        tk.Label(f3, text='判定回数 (往復):', bg='white').pack(side='left')
+        tk.Entry(f3, textvariable=count_var, width=8).pack(side='right')
+        
+        from tkinter import colorchooser
+        
+        tk.Label(frame, text='【時計】', bg='white', font=('Meiryo', 8, 'bold')).pack(anchor='w', pady=(10,0))
+        
+        c_size_var = tk.IntVar(value=self.tts_manager.config.get('clock_size', 150))
+        cs_f = tk.Frame(frame, bg='white')
+        cs_f.pack(fill='x', pady=2)
+        tk.Label(cs_f, text='サイズ:', bg='white').pack(side='left')
+        tk.Scale(cs_f, variable=c_size_var, from_=50, to=300, orient='horizontal', bg='white', highlightthickness=0).pack(side='left', fill='x', expand=True, padx=5)
+        
+        c_mode_var = tk.StringVar(value=self.tts_manager.config.get('clock_color_mode', 'デフォルト'))
+        c_cust_var = tk.StringVar(value=self.tts_manager.config.get('clock_custom_color', '#ffffff'))
+        
+        cf = tk.Frame(frame, bg='white')
+        cf.pack(fill='x', pady=2)
+        tk.OptionMenu(cf, c_mode_var, 'デフォルト', 'ユーザー指定').pack(side='left')
+        
+        def pick_clock_color():
+            c = colorchooser.askcolor(initialcolor=c_cust_var.get(), parent=self.sens_bubble)[1]
+            if c: c_cust_var.set(c)
+        tk.Button(cf, text='色選択...', command=pick_clock_color).pack(side='left', padx=5)
+        
+        c_outline_var = tk.BooleanVar(value=self.tts_manager.config.get('clock_outline', False))
+        tk.Checkbutton(frame, text='補色で縁取りする', variable=c_outline_var, bg='white').pack(anchor='w')
+        
+        tk.Label(frame, text='【タイマー】', bg='white', font=('Meiryo', 8, 'bold')).pack(anchor='w', pady=(10,0))
+        
+        t_size_var = tk.IntVar(value=self.tts_manager.config.get('timer_size', 150))
+        ts_f = tk.Frame(frame, bg='white')
+        ts_f.pack(fill='x', pady=2)
+        tk.Label(ts_f, text='サイズ:', bg='white').pack(side='left')
+        tk.Scale(ts_f, variable=t_size_var, from_=50, to=300, orient='horizontal', bg='white', highlightthickness=0).pack(side='left', fill='x', expand=True, padx=5)
+        
+        t_mode_var = tk.StringVar(value=self.tts_manager.config.get('timer_color_mode', 'デフォルト'))
+        t_cust_var = tk.StringVar(value=self.tts_manager.config.get('timer_custom_color', '#ffffff'))
+        
+        tf = tk.Frame(frame, bg='white')
+        tf.pack(fill='x', pady=2)
+        tk.OptionMenu(tf, t_mode_var, 'デフォルト', 'ユーザー指定').pack(side='left')
+        
+        def pick_timer_color():
+            c = colorchooser.askcolor(initialcolor=t_cust_var.get(), parent=self.sens_bubble)[1]
+            if c: t_cust_var.set(c)
+        tk.Button(tf, text='色選択...', command=pick_timer_color).pack(side='left', padx=5)
+        
+        t_outline_var = tk.BooleanVar(value=self.tts_manager.config.get('timer_outline', False))
+        tk.Checkbutton(frame, text='補色で縁取りする', variable=t_outline_var, bg='white').pack(anchor='w')
+        
+        def save():
+            try:
+                self.tts_manager.config['shake_dist'] = dist_var.get()
+                self.tts_manager.config['shake_time'] = time_var.get()
+                self.tts_manager.config['shake_count'] = count_var.get()
+                self.tts_manager.config['clock_color_mode'] = c_mode_var.get()
+                self.tts_manager.config['clock_custom_color'] = c_cust_var.get()
+                self.tts_manager.config['clock_size'] = c_size_var.get()
+                self.tts_manager.config['clock_outline'] = c_outline_var.get()
+                self.tts_manager.config['timer_color_mode'] = t_mode_var.get()
+                self.tts_manager.config['timer_custom_color'] = t_cust_var.get()
+                self.tts_manager.config['timer_size'] = t_size_var.get()
+                self.tts_manager.config['timer_outline'] = t_outline_var.get()
+                self.tts_manager.save_config()
+                self.sens_bubble.destroy()
+            except ValueError:
+                pass
+                
+        save_btn = tk.Button(frame, text='保存して閉じる', command=save, bg='#f0f0f0', relief='solid', bd=1, padx=10, pady=2)
+        save_btn.pack(pady=(10,0))
+        
+        canvas.create_window(rect_x1 + padding, rect_y1 + padding, window=frame, width=width, height=height, anchor='nw')
+        
+        x_btn = tk.Label(self.sens_bubble, text='✖', bg='white', fg='gray', font=('Arial', 12, 'bold'), cursor='hand2')
+        x_btn.place(x=rect_x2 - 25, y=rect_y1 + 5)
+        x_btn.bind('<Button-1>', lambda e: self.sens_bubble.destroy())
+        
+        self._make_draggable(self.sens_bubble, [canvas, frame, title_lbl, f1, f2, f3, cf, tf, cs_f, ts_f])
+        
+        self.sens_bubble.update_idletasks()
+        
+        bx = self.x + self.width - cw + 20
+        by = self.y - ch - 10
+        if bx < self.display_info['x']:
+            bx = self.display_info['x']
+        self.sens_bubble.geometry(f"{cw}x{ch}+{bx}+{by}")
 
     def open_window_manager(self):
         if hasattr(self, 'wm_bubble') and self.wm_bubble:

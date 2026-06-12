@@ -43,6 +43,20 @@ class TTSManager:
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump(self.config, f, indent=4)
 
+    def _ensure_ps_proc(self):
+        if not hasattr(self, 'ps_proc') or self.ps_proc is None or self.ps_proc.poll() is not None:
+            self.ps_proc = subprocess.Popen(
+                ["powershell", "-Command", "-"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+            self.ps_proc.stdin.write("Add-Type -AssemblyName System.speech\n")
+            self.ps_proc.stdin.write("$speak = New-Object System.Speech.Synthesis.SpeechSynthesizer\n")
+            self.ps_proc.stdin.flush()
+
     def speak(self, text):
         if not self.config.get("tts_enabled", True):
             return
@@ -61,20 +75,30 @@ class TTSManager:
         # Escape single quotes and newlines for PowerShell
         safe_text = text.replace("'", "''").replace("\n", " ").replace("\r", "")
         
-        ps_script = f"Add-Type -AssemblyName System.speech; $speak = New-Object System.Speech.Synthesis.SpeechSynthesizer; $speak.Rate = {speed}; $speak.Volume = {vol}; $speak.Speak('{safe_text}')"
+        self._ensure_ps_proc()
         
-        self.current_process = subprocess.Popen(["powershell", "-Command", ps_script], creationflags=subprocess.CREATE_NO_WINDOW)
-        self.current_process.wait()
+        try:
+            self.ps_proc.stdin.write(f"$speak.Rate = {speed}; $speak.Volume = {vol}; $speak.Speak('{safe_text}')\n")
+            self.ps_proc.stdin.write("Write-Output 'DONE'\n")
+            self.ps_proc.stdin.flush()
+            
+            while True:
+                line = self.ps_proc.stdout.readline()
+                if not line or line.strip() == 'DONE':
+                    break
+        except Exception:
+            self.ps_proc = None
         
         if self.on_speak_done_callback:
             self.on_speak_done_callback()
 
     def abort_speech(self):
-        if hasattr(self, 'current_process') and self.current_process:
+        if hasattr(self, 'ps_proc') and self.ps_proc:
             try:
-                self.current_process.terminate()
+                self.ps_proc.terminate()
             except Exception:
                 pass
+            self.ps_proc = None
 
     def _poll(self):
         while self.running:

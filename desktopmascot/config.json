@@ -3,5 +3,16 @@
     "max_speech_length": 1000,
     "speech_volume": 100,
     "bubble_max_height": 100,
-    "speak_dir": "C:\\Users\\user\\OneDrive\\Speak"
+    "speak_dir": "C:\\Users\\user\\OneDrive\\Speak",
+    "shake_dist": 10.0,
+    "shake_time": 0.5,
+    "shake_count": 3,
+    "clock_color_mode": "\u30c7\u30d5\u30a9\u30eb\u30c8",
+    "clock_custom_color": "#ffffff",
+    "timer_color_mode": "\u30e6\u30fc\u30b6\u30fc\u6307\u5b9a",
+    "timer_custom_color": "#ff0000",
+    "clock_size": 152,
+    "clock_outline": true,
+    "timer_size": 300,
+    "timer_outline": true
 }
