@@ -46,12 +46,12 @@ class TTSManager:
     def _ensure_ps_proc(self):
         if not hasattr(self, 'ps_proc') or self.ps_proc is None or self.ps_proc.poll() is not None:
             self.ps_proc = subprocess.Popen(
-                ["powershell", "-NoProfile", "-Command", "[Console]::InputEncoding = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; -"],
+                ["powershell", "-Command", "-"],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
                 text=True,
-                encoding='utf-8',
+                errors='replace',
                 creationflags=subprocess.CREATE_NO_WINDOW
             )
             self.ps_proc.stdin.write("Add-Type -AssemblyName System.speech\n")
