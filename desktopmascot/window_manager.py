@@ -159,3 +159,54 @@ class WindowManager:
             user32.SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA)
             user32.SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style & ~WS_EX_LAYERED)
             return False
+
+    def activate_window_by_name(self, name, match_type="starts_with"):
+        """
+        ウィンドウタイトルが条件に合致するウィンドウを検索し、フォアグラウンドに表示する。
+        match_type: "starts_with" or "ends_with"
+        戻り値: 見つかったウィンドウのタイトル or None
+        """
+        SW_RESTORE = 9
+        found_hwnd = None
+        found_title = None
+
+        hwnds = []
+        def enum_windows_proc(hwnd, lParam):
+            hwnds.append(hwnd)
+            return True
+
+        EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+        user32.EnumWindows(EnumWindowsProc(enum_windows_proc), 0)
+
+        for hwnd in hwnds:
+            if not user32.IsWindowVisible(hwnd) and not user32.IsIconic(hwnd):
+                continue
+
+            length = user32.GetWindowTextLengthW(hwnd)
+            if length == 0:
+                continue
+
+            buff = ctypes.create_unicode_buffer(length + 1)
+            user32.GetWindowTextW(hwnd, buff, length + 1)
+            title = buff.value
+
+            matched = False
+            if match_type == "starts_with" and title.startswith(name):
+                matched = True
+            elif match_type == "ends_with" and title.endswith(name):
+                matched = True
+
+            if matched:
+                found_hwnd = hwnd
+                found_title = title
+                break
+
+        if found_hwnd:
+            # 最小化されていたら復元
+            if user32.IsIconic(found_hwnd):
+                user32.ShowWindow(found_hwnd, SW_RESTORE)
+            # フォアグラウンドに
+            user32.SetForegroundWindow(found_hwnd)
+            return found_title
+
+        return None

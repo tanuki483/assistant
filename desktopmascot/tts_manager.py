@@ -103,6 +103,9 @@ class TTSManager:
 
     def _poll(self):
         while self.running:
+            if not self.config.get("tts_enabled", True):
+                time.sleep(2)
+                continue
             try:
                 files = [f for f in os.listdir(self.speak_dir) if f.endswith('.txt')]
                 for f in files:

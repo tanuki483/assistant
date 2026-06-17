@@ -5,6 +5,7 @@ import time
 from tts_manager import TTSManager
 from window_manager import WindowManager
 from clock_widget import ClockWidget, TimerWidget
+from shortcut_manager import ShortcutManager
 
 class MascotWindow:
     def __init__(self, root, display_info, win_manager, tts_manager, all_mascots):
@@ -16,6 +17,10 @@ class MascotWindow:
         
         self.clocks = []
         self.timers = []
+        
+        # ShortcutManager初期化
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        self.shortcut_manager = ShortcutManager(base_dir, win_manager)
         
         # Window setup
         self.root.overrideredirect(True)
@@ -84,10 +89,14 @@ class MascotWindow:
         self.label.bind("<B1-Motion>", self.on_drag)
         self.label.bind("<ButtonRelease-1>", self.on_release)
         self.label.bind("<Button-3>", self.show_menu)
+        self.label.bind("<Double-Button-1>", self.on_double_click)
 
         # Bubble
         self.bubble = None
         self.bubble_label = None
+        
+        # ドラッグ距離トラッキング（ダブルクリック誤発火防止用）
+        self._drag_distance = 0
 
         # Menu features are handled by show_menu which creates a custom bubble
 
@@ -126,12 +135,14 @@ class MascotWindow:
         self.drag_start_x = event.x
         self.drag_start_y = event.y
         self.shake_count = 0
+        self._drag_distance = 0
 
     def on_drag(self, event):
         dx = event.x - self.drag_start_x
         dy = event.y - self.drag_start_y
         self.x += dx
         self.y += dy
+        self._drag_distance += (dx**2 + dy**2)**0.5
         self.root.geometry(f"+{self.x}+{self.y}")
         
         # Shake detection
@@ -167,7 +178,23 @@ class MascotWindow:
         mascot_hwnds = [m.get_hwnd() for m in self.all_mascots]
         self.win_manager.toggle_minimize_on_monitor(current_monitor, mascot_hwnds)
 
+    def _close_all_non_speech_bubbles(self):
+        """読み上げ以外の全ての吹き出しを閉じる"""
+        for attr in ('menu_bubble', 'settings_bubble', 'sens_bubble', 'wm_bubble', 'shortcut_bubble', 'sc_create_bubble', 'sc_existing_bubble', 'sc_manage_bubble'):
+            w = getattr(self, attr, None)
+            if w and w.winfo_exists():
+                w.destroy()
+
     def show_menu(self, event):
+        # 既にメニュー以外の吹き出しが開いていたら全て閉じて終了
+        non_menu_open = any(
+            getattr(self, attr, None) and getattr(self, attr).winfo_exists()
+            for attr in ('settings_bubble', 'sens_bubble', 'wm_bubble', 'shortcut_bubble', 'sc_create_bubble', 'sc_existing_bubble', 'sc_manage_bubble')
+        )
+        if non_menu_open:
+            self._close_all_non_speech_bubbles()
+            return
+        # メニュー自体が開いていたら閉じる
         if hasattr(self, 'menu_bubble') and self.menu_bubble and self.menu_bubble.winfo_exists():
             self.menu_bubble.destroy()
             return
@@ -181,7 +208,7 @@ class MascotWindow:
         canvas.pack(fill="both", expand=True)
         
         width = 160
-        height = 280
+        height = 320
         padding = 15
         tail_width = 15
         tail_height = 15
@@ -236,6 +263,13 @@ class MascotWindow:
         btn_timer = tk.Button(frame, text="タイマー", command=spawn_timer_and_close, bg='#f0f0f0', relief='solid', bd=1, width=15)
         btn_timer.pack(pady=5)
         
+        def open_sc_manage_and_close():
+            self.menu_bubble.destroy()
+            self.open_shortcut_manager()
+            
+        btn_sc = tk.Button(frame, text="ショートカット管理...", command=open_sc_manage_and_close, bg='#f0f0f0', relief='solid', bd=1, width=15)
+        btn_sc.pack(pady=5)
+        
         def open_sens_and_close():
             self.menu_bubble.destroy()
             self.open_sensitivity_settings()
@@ -285,7 +319,7 @@ class MascotWindow:
         canvas.pack(fill="both", expand=True)
         
         width = 280
-        height = 220
+        height = 300
         padding = 15
         tail_width = 15
         tail_height = 15
@@ -761,6 +795,471 @@ class MascotWindow:
         if self.bubble:
             self.bubble.destroy()
             self.bubble = None
+
+
+    def on_double_click(self, event):
+        if self._drag_distance < 5:
+            self._close_all_non_speech_bubbles()
+            self.open_shortcut_input()
+
+    def open_shortcut_input(self):
+        if hasattr(self, 'shortcut_bubble') and self.shortcut_bubble and self.shortcut_bubble.winfo_exists():
+            self.shortcut_bubble.destroy()
+            
+        self.shortcut_bubble = tk.Toplevel(self.root)
+        self.shortcut_bubble.overrideredirect(True)
+        self.shortcut_bubble.wm_attributes("-topmost", True)
+        self.shortcut_bubble.wm_attributes("-transparentcolor", self.transparent_color)
+        self.shortcut_bubble.config(bg=self.transparent_color)
+        
+        canvas = tk.Canvas(self.shortcut_bubble, bg=self.transparent_color, highlightthickness=0)
+        canvas.pack(fill="both", expand=True)
+        
+        width, height = 400, 200
+        padding = 15
+        tail_width, tail_height = 15, 15
+        border_width = 6
+        border_color = 'gray'
+        offset = border_width // 2
+        
+        rect_w = width + padding * 2
+        rect_h = height + padding * 2
+        cw = rect_w + border_width
+        ch = rect_h + tail_height + border_width
+        rect_x1, rect_y1 = offset, offset
+        rect_x2, rect_y2 = rect_w + offset, rect_h + offset
+        
+        tail_center_x = rect_w - 40 + offset
+        tail_tip_x = tail_center_x
+        tail_tip_y = rect_y2 + tail_height
+        tail_base_x1 = tail_center_x - tail_width // 2
+        tail_base_x2 = tail_center_x + tail_width // 2
+        
+        canvas.config(width=cw, height=ch)
+        canvas.create_polygon(tail_base_x1, rect_y2, tail_base_x2, rect_y2, tail_tip_x, tail_tip_y, fill='white', outline=border_color, width=border_width)
+        canvas.create_rectangle(rect_x1, rect_y1, rect_x2, rect_y2, fill='white', outline=border_color, width=border_width)
+        canvas.create_line(tail_base_x1 + offset, rect_y2, tail_base_x2 - offset, rect_y2, fill='white', width=border_width)
+        
+        frame = tk.Frame(canvas, bg='white')
+        
+        title_lbl = tk.Label(frame, text='🔍 ショートカット', font=('Meiryo', 10, 'bold'), bg='white')
+        title_lbl.pack(anchor='w', pady=(0,5))
+        
+        entry_var = tk.StringVar()
+        entry = tk.Entry(frame, textvariable=entry_var, font=('Meiryo', 14), width=30)
+        entry.pack(fill='x', pady=5)
+        
+        result_frame = tk.Frame(frame, bg='white')
+        result_frame.pack(fill='both', expand=True, pady=5)
+        
+        res_name_lbl = tk.Label(result_frame, text='', font=('Meiryo', 11, 'bold'), bg='white', fg='#333')
+        res_name_lbl.pack(anchor='w')
+        res_desc_lbl = tk.Label(result_frame, text='', font=('Meiryo', 9), bg='white', fg='#666')
+        res_desc_lbl.pack(anchor='w')
+        
+        btn_frame = tk.Frame(frame, bg='white')
+        btn_frame.pack(fill='x', pady=(5,0))
+        
+        current_shortcut = [None]
+        
+        def update_result(*args):
+            q = entry_var.get().strip()
+            if not q:
+                res_name_lbl.config(text='')
+                res_desc_lbl.config(text='')
+                current_shortcut[0] = None
+                return
+                
+            sc, score = self.shortcut_manager.search(q)
+            if sc:
+                current_shortcut[0] = sc
+                res_name_lbl.config(text=f"💬 {sc.get('name', '???')}  (スコア: {score:.2f})")
+                actions = sc.get('actions', [])
+                if actions:
+                    desc = self.shortcut_manager.format_action_summary(actions[0])
+                    if len(actions) > 1:
+                        desc += f" (+{len(actions)-1}件)"
+                    res_desc_lbl.config(text=f"アクション: {desc}")
+                else:
+                    res_desc_lbl.config(text="アクションなし")
+            else:
+                current_shortcut[0] = None
+                res_name_lbl.config(text="一致するショートカットがありません")
+                res_desc_lbl.config(text="")
+                
+        entry_var.trace_add('write', update_result)
+        
+        def on_enter(e):
+            if current_shortcut[0]:
+                self.shortcut_manager.execute(current_shortcut[0])
+                self.shortcut_bubble.destroy()
+            else:
+                entry_var.set('')
+                
+        entry.bind('<Return>', on_enter)
+        
+        def show_detail():
+            sc = current_shortcut[0]
+            if not sc: return
+            details = [self.shortcut_manager.format_action_summary(a) for a in sc.get('actions', [])]
+            import tkinter.messagebox as mb
+            mb.showinfo("詳細", chr(10).join(details), parent=self.shortcut_bubble)
+            
+        def add_new():
+            q = entry_var.get().strip()
+            self.shortcut_bubble.destroy()
+            self.open_shortcut_create(initial_trigger=q)
+            
+        def add_existing():
+            q = entry_var.get().strip()
+            if not q: return
+            self.shortcut_bubble.destroy()
+            self.open_shortcut_existing(q)
+            
+        def open_manage():
+            self.shortcut_bubble.destroy()
+            self.open_shortcut_manager()
+            
+        tk.Button(btn_frame, text='詳細', command=show_detail, bg='#f0f0f0', relief='solid', bd=1).pack(side='left', padx=2)
+        tk.Button(btn_frame, text='追加', command=add_new, bg='#e6f2ff', relief='solid', bd=1).pack(side='left', padx=2)
+        tk.Button(btn_frame, text='既存', command=add_existing, bg='#e6f2ff', relief='solid', bd=1).pack(side='left', padx=2)
+        tk.Button(btn_frame, text='管理', command=open_manage, bg='#f0f0f0', relief='solid', bd=1).pack(side='right', padx=2)
+        
+        canvas.create_window(rect_x1 + padding, rect_y1 + padding, window=frame, width=width, height=height, anchor='nw')
+        
+        x_btn = tk.Label(self.shortcut_bubble, text='✖', bg='white', fg='gray', font=('Arial', 12, 'bold'), cursor='hand2')
+        x_btn.place(x=rect_x2 - 25, y=rect_y1 + 5)
+        x_btn.bind('<Button-1>', lambda e: self.shortcut_bubble.destroy())
+        
+        self._make_draggable(self.shortcut_bubble, [canvas, frame, title_lbl])
+        self.shortcut_bubble.update_idletasks()
+        
+        bx, by = self.x + self.width - cw + 20, self.y - ch - 10
+        if bx < self.display_info['x']: bx = self.display_info['x']
+        self.shortcut_bubble.geometry(f"{cw}x{ch}+{bx}+{by}")
+        
+        entry.focus_set()
+
+    def open_shortcut_create(self, initial_trigger="", shortcut_id=None):
+        if hasattr(self, 'sc_create_bubble') and self.sc_create_bubble and self.sc_create_bubble.winfo_exists():
+            self.sc_create_bubble.destroy()
+            
+        self.sc_create_bubble = tk.Toplevel(self.root)
+        self.sc_create_bubble.overrideredirect(True)
+        self.sc_create_bubble.wm_attributes("-topmost", True)
+        self.sc_create_bubble.wm_attributes("-transparentcolor", self.transparent_color)
+        self.sc_create_bubble.config(bg=self.transparent_color)
+        
+        canvas = tk.Canvas(self.sc_create_bubble, bg=self.transparent_color, highlightthickness=0)
+        canvas.pack(fill="both", expand=True)
+        
+        width, height = 450, 400
+        padding = 15
+        tail_width, tail_height = 15, 15
+        border_width = 6
+        border_color = 'gray'
+        offset = border_width // 2
+        
+        rect_w = width + padding * 2
+        rect_h = height + padding * 2
+        cw = rect_w + border_width
+        ch = rect_h + tail_height + border_width
+        rect_x1, rect_y1 = offset, offset
+        rect_x2, rect_y2 = rect_w + offset, rect_h + offset
+        
+        tail_center_x = rect_w - 40 + offset
+        tail_tip_x = tail_center_x
+        tail_tip_y = rect_y2 + tail_height
+        tail_base_x1 = tail_center_x - tail_width // 2
+        tail_base_x2 = tail_center_x + tail_width // 2
+        
+        canvas.config(width=cw, height=ch)
+        canvas.create_polygon(tail_base_x1, rect_y2, tail_base_x2, rect_y2, tail_tip_x, tail_tip_y, fill='white', outline=border_color, width=border_width)
+        canvas.create_rectangle(rect_x1, rect_y1, rect_x2, rect_y2, fill='white', outline=border_color, width=border_width)
+        canvas.create_line(tail_base_x1 + offset, rect_y2, tail_base_x2 - offset, rect_y2, fill='white', width=border_width)
+        
+        frame = tk.Frame(canvas, bg='white')
+        
+        title_text = 'ショートカット編集' if shortcut_id else '新規ショートカット作成'
+        title_lbl = tk.Label(frame, text=title_text, font=('Meiryo', 10, 'bold'), bg='white')
+        title_lbl.pack(anchor='w', pady=(0,5))
+        
+        sc_data = self.shortcut_manager.get_by_id(shortcut_id) if shortcut_id else None
+        
+        f1 = tk.Frame(frame, bg='white')
+        f1.pack(fill='x', pady=2)
+        tk.Label(f1, text='作業名(確認文):', bg='white', width=14, anchor='e').pack(side='left')
+        name_var = tk.StringVar(value=sc_data['name'] if sc_data else '')
+        tk.Entry(f1, textvariable=name_var, width=35).pack(side='left', padx=5)
+        
+        f2 = tk.Frame(frame, bg='white')
+        f2.pack(fill='x', pady=2)
+        tk.Label(f2, text='指示文言(カンマ区切):', bg='white', width=14, anchor='e').pack(side='left')
+        trig_val = ", ".join(sc_data['triggers']) if sc_data else initial_trigger
+        triggers_var = tk.StringVar(value=trig_val)
+        tk.Entry(f2, textvariable=triggers_var, width=35).pack(side='left', padx=5)
+        
+        tk.Label(frame, text='【アクション】', bg='white', font=('Meiryo', 9, 'bold')).pack(anchor='w', pady=(10,0))
+        
+        actions_container = tk.Frame(frame, bg='white')
+        actions_container.pack(fill='both', expand=True)
+        
+        action_widgets = []
+        
+        def add_action_row(act_data=None):
+            if not act_data: act_data = {"type": "open", "value": ""}
+            row = tk.Frame(actions_container, bg='#f9f9f9', bd=1, relief='solid', pady=5, padx=5)
+            row.pack(fill='x', pady=2)
+            
+            tf = tk.Frame(row, bg='#f9f9f9')
+            tf.pack(fill='x')
+            tk.Label(tf, text='タイプ:', bg='#f9f9f9').pack(side='left')
+            type_var = tk.StringVar(value=act_data['type'])
+            tk.OptionMenu(tf, type_var, 'open', 'command', 'text_file', 'window').pack(side='left', padx=5)
+            
+            vf = tk.Frame(row, bg='#f9f9f9')
+            vf.pack(fill='x', pady=2)
+            tk.Label(vf, text='値:', bg='#f9f9f9').pack(side='left')
+            
+            is_dict = isinstance(act_data['value'], dict)
+            v_val = act_data['value'].get('path', '') if is_dict and act_data['type'] == 'text_file' else act_data['value'].get('name', '') if is_dict and act_data['type'] == 'window' else act_data['value']
+            
+            val_var = tk.StringVar(value=str(v_val))
+            tk.Entry(vf, textvariable=val_var, width=30).pack(side='left', padx=5)
+            
+            def do_test():
+                t = type_var.get()
+                v = val_var.get()
+                if t == 'text_file': v = {"path": v, "content": "テスト"}
+                elif t == 'window': v = {"match": "starts_with", "name": v}
+                res = self.shortcut_manager.test_action({"type": t, "value": v})
+                import tkinter.messagebox as mb
+                mb.showinfo("テスト結果", self.shortcut_manager.format_result_detail(res), parent=self.sc_create_bubble)
+                
+            tk.Button(vf, text='テスト', command=do_test, bg='#e6f2ff', relief='solid', bd=1).pack(side='right')
+            
+            def del_row():
+                row.destroy()
+                action_widgets.remove(get_data)
+                
+            tk.Button(tf, text='削除', command=del_row, bg='#ffe6e6', relief='solid', bd=1).pack(side='right')
+            
+            def get_data():
+                t = type_var.get()
+                v = val_var.get()
+                if t == 'text_file': v = {"path": v, "content": "(ショートカットから生成)"}
+                elif t == 'window': v = {"match": "starts_with", "name": v}
+                return {"type": t, "value": v}
+                
+            action_widgets.append(get_data)
+            
+        if sc_data:
+            for a in sc_data.get('actions', []): add_action_row(a)
+        else:
+            add_action_row()
+            
+        tk.Button(frame, text='＋アクション追加', command=lambda: add_action_row(), bg='#f0f0f0', relief='solid', bd=1).pack(pady=5)
+        
+        def save():
+            name = name_var.get().strip()
+            trigs = [t.strip() for t in triggers_var.get().split(',') if t.strip()]
+            acts = [gw() for gw in action_widgets]
+            if not name or not trigs or not acts:
+                import tkinter.messagebox as mb
+                mb.showerror("エラー", "作業名、指示文言、アクションは必須です", parent=self.sc_create_bubble)
+                return
+            if shortcut_id:
+                self.shortcut_manager.update_shortcut(shortcut_id, name=name, triggers=trigs, actions=acts)
+            else:
+                self.shortcut_manager.add_shortcut(name, trigs, acts)
+            self.sc_create_bubble.destroy()
+            
+        btn_f = tk.Frame(frame, bg='white')
+        btn_f.pack(pady=10)
+        tk.Button(btn_f, text='保存', command=save, bg='#e6f2ff', relief='solid', bd=1, width=10).pack(side='left', padx=5)
+        tk.Button(btn_f, text='キャンセル', command=self.sc_create_bubble.destroy, bg='#f0f0f0', relief='solid', bd=1, width=10).pack(side='left', padx=5)
+        
+        canvas.create_window(rect_x1 + padding, rect_y1 + padding, window=frame, width=width, height=height, anchor='nw')
+        
+        x_btn = tk.Label(self.sc_create_bubble, text='✖', bg='white', fg='gray', font=('Arial', 12, 'bold'), cursor='hand2')
+        x_btn.place(x=rect_x2 - 25, y=rect_y1 + 5)
+        x_btn.bind('<Button-1>', lambda e: self.sc_create_bubble.destroy())
+        
+        self._make_draggable(self.sc_create_bubble, [canvas, frame, title_lbl])
+        self.sc_create_bubble.update_idletasks()
+        
+        bx, by = self.x + self.width - cw + 20, self.y - ch - 10
+        if bx < self.display_info['x']: bx = self.display_info['x']
+        self.sc_create_bubble.geometry(f"{cw}x{ch}+{bx}+{by}")
+
+    def open_shortcut_existing(self, new_trigger):
+        if hasattr(self, 'sc_existing_bubble') and self.sc_existing_bubble and self.sc_existing_bubble.winfo_exists():
+            self.sc_existing_bubble.destroy()
+            
+        self.sc_existing_bubble = tk.Toplevel(self.root)
+        self.sc_existing_bubble.overrideredirect(True)
+        self.sc_existing_bubble.wm_attributes("-topmost", True)
+        self.sc_existing_bubble.wm_attributes("-transparentcolor", self.transparent_color)
+        self.sc_existing_bubble.config(bg=self.transparent_color)
+        
+        canvas = tk.Canvas(self.sc_existing_bubble, bg=self.transparent_color, highlightthickness=0)
+        canvas.pack(fill="both", expand=True)
+        
+        width, height = 300, 300
+        padding = 15
+        tail_width, tail_height = 15, 15
+        border_width = 6
+        border_color = 'gray'
+        offset = border_width // 2
+        
+        rect_w = width + padding * 2
+        rect_h = height + padding * 2
+        cw = rect_w + border_width
+        ch = rect_h + tail_height + border_width
+        rect_x1, rect_y1 = offset, offset
+        rect_x2, rect_y2 = rect_w + offset, rect_h + offset
+        
+        tail_center_x = rect_w - 40 + offset
+        tail_tip_x = tail_center_x
+        tail_tip_y = rect_y2 + tail_height
+        tail_base_x1 = tail_center_x - tail_width // 2
+        tail_base_x2 = tail_center_x + tail_width // 2
+        
+        canvas.config(width=cw, height=ch)
+        canvas.create_polygon(tail_base_x1, rect_y2, tail_base_x2, rect_y2, tail_tip_x, tail_tip_y, fill='white', outline=border_color, width=border_width)
+        canvas.create_rectangle(rect_x1, rect_y1, rect_x2, rect_y2, fill='white', outline=border_color, width=border_width)
+        canvas.create_line(tail_base_x1 + offset, rect_y2, tail_base_x2 - offset, rect_y2, fill='white', width=border_width)
+        
+        frame = tk.Frame(canvas, bg='white')
+        
+        title_lbl = tk.Label(frame, text='既存ショートカットに追加', font=('Meiryo', 10, 'bold'), bg='white')
+        title_lbl.pack(anchor='w', pady=(0,5))
+        tk.Label(frame, text=f"追加する文言: {new_trigger}", bg='white').pack(anchor='w')
+        
+        listbox = tk.Listbox(frame, width=40, height=10)
+        listbox.pack(fill='both', expand=True, pady=5)
+        
+        shortcuts = self.shortcut_manager.get_all()
+        for sc in shortcuts:
+            listbox.insert('end', sc.get('name', '???'))
+            
+        def do_add():
+            sel = listbox.curselection()
+            if not sel: return
+            sc = shortcuts[sel[0]]
+            self.shortcut_manager.add_trigger(sc['id'], new_trigger)
+            self.sc_existing_bubble.destroy()
+            
+        tk.Button(frame, text='追加', command=do_add, bg='#e6f2ff', relief='solid', bd=1, width=10).pack(pady=5)
+        
+        canvas.create_window(rect_x1 + padding, rect_y1 + padding, window=frame, width=width, height=height, anchor='nw')
+        
+        x_btn = tk.Label(self.sc_existing_bubble, text='✖', bg='white', fg='gray', font=('Arial', 12, 'bold'), cursor='hand2')
+        x_btn.place(x=rect_x2 - 25, y=rect_y1 + 5)
+        x_btn.bind('<Button-1>', lambda e: self.sc_existing_bubble.destroy())
+        
+        self._make_draggable(self.sc_existing_bubble, [canvas, frame, title_lbl])
+        self.sc_existing_bubble.update_idletasks()
+        
+        bx, by = self.x + self.width - cw + 20, self.y - ch - 10
+        if bx < self.display_info['x']: bx = self.display_info['x']
+        self.sc_existing_bubble.geometry(f"{cw}x{ch}+{bx}+{by}")
+
+    def open_shortcut_manager(self):
+        if hasattr(self, 'sc_manage_bubble') and self.sc_manage_bubble and self.sc_manage_bubble.winfo_exists():
+            self.sc_manage_bubble.destroy()
+            
+        self.sc_manage_bubble = tk.Toplevel(self.root)
+        self.sc_manage_bubble.overrideredirect(True)
+        self.sc_manage_bubble.wm_attributes("-topmost", True)
+        self.sc_manage_bubble.wm_attributes("-transparentcolor", self.transparent_color)
+        self.sc_manage_bubble.config(bg=self.transparent_color)
+        
+        canvas = tk.Canvas(self.sc_manage_bubble, bg=self.transparent_color, highlightthickness=0)
+        canvas.pack(fill="both", expand=True)
+        
+        width, height = 350, 400
+        padding = 15
+        tail_width, tail_height = 15, 15
+        border_width = 6
+        border_color = 'gray'
+        offset = border_width // 2
+        
+        rect_w = width + padding * 2
+        rect_h = height + padding * 2
+        cw = rect_w + border_width
+        ch = rect_h + tail_height + border_width
+        rect_x1, rect_y1 = offset, offset
+        rect_x2, rect_y2 = rect_w + offset, rect_h + offset
+        
+        tail_center_x = rect_w - 40 + offset
+        tail_tip_x = tail_center_x
+        tail_tip_y = rect_y2 + tail_height
+        tail_base_x1 = tail_center_x - tail_width // 2
+        tail_base_x2 = tail_center_x + tail_width // 2
+        
+        canvas.config(width=cw, height=ch)
+        canvas.create_polygon(tail_base_x1, rect_y2, tail_base_x2, rect_y2, tail_tip_x, tail_tip_y, fill='white', outline=border_color, width=border_width)
+        canvas.create_rectangle(rect_x1, rect_y1, rect_x2, rect_y2, fill='white', outline=border_color, width=border_width)
+        canvas.create_line(tail_base_x1 + offset, rect_y2, tail_base_x2 - offset, rect_y2, fill='white', width=border_width)
+        
+        frame = tk.Frame(canvas, bg='white')
+        
+        title_lbl = tk.Label(frame, text='ショートカット管理', font=('Meiryo', 10, 'bold'), bg='white')
+        title_lbl.pack(anchor='w', pady=(0,5))
+        
+        listbox = tk.Listbox(frame, width=50, height=15)
+        listbox.pack(fill='both', expand=True, pady=5)
+        
+        def refresh_list():
+            listbox.delete(0, 'end')
+            for sc in self.shortcut_manager.get_all():
+                mark = "☑" if sc.get('enabled', True) else "☐"
+                listbox.insert('end', f"{mark} {sc.get('name', '???')}")
+                
+        refresh_list()
+        
+        def toggle_enable():
+            sel = listbox.curselection()
+            if not sel: return
+            sc = self.shortcut_manager.get_all()[sel[0]]
+            self.shortcut_manager.update_shortcut(sc['id'], enabled=not sc.get('enabled', True))
+            refresh_list()
+            
+        def do_edit():
+            sel = listbox.curselection()
+            if not sel: return
+            sc = self.shortcut_manager.get_all()[sel[0]]
+            self.open_shortcut_create(shortcut_id=sc['id'])
+            # We don't close manage window so they can return
+            
+        def do_delete():
+            sel = listbox.curselection()
+            if not sel: return
+            sc = self.shortcut_manager.get_all()[sel[0]]
+            self.shortcut_manager.delete_shortcut(sc['id'])
+            refresh_list()
+            
+        btn_f = tk.Frame(frame, bg='white')
+        btn_f.pack(fill='x', pady=5)
+        
+        tk.Button(btn_f, text='ON/OFF', command=toggle_enable, bg='#f0f0f0', relief='solid', bd=1).pack(side='left', padx=2)
+        tk.Button(btn_f, text='編集', command=do_edit, bg='#e6f2ff', relief='solid', bd=1).pack(side='left', padx=2)
+        tk.Button(btn_f, text='削除', command=do_delete, bg='#ffe6e6', relief='solid', bd=1).pack(side='left', padx=2)
+        tk.Button(btn_f, text='更新', command=refresh_list, bg='#f0f0f0', relief='solid', bd=1).pack(side='right', padx=2)
+        
+        canvas.create_window(rect_x1 + padding, rect_y1 + padding, window=frame, width=width, height=height, anchor='nw')
+        
+        x_btn = tk.Label(self.sc_manage_bubble, text='✖', bg='white', fg='gray', font=('Arial', 12, 'bold'), cursor='hand2')
+        x_btn.place(x=rect_x2 - 25, y=rect_y1 + 5)
+        x_btn.bind('<Button-1>', lambda e: self.sc_manage_bubble.destroy())
+        
+        self._make_draggable(self.sc_manage_bubble, [canvas, frame, title_lbl])
+        self.sc_manage_bubble.update_idletasks()
+        
+        bx, by = self.x + self.width - cw + 20, self.y - ch - 10
+        if bx < self.display_info['x']: bx = self.display_info['x']
+        self.sc_manage_bubble.geometry(f"{cw}x{ch}+{bx}+{by}")
 
 def main():
     root = tk.Tk()

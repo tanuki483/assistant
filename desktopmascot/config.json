@@ -14,5 +14,6 @@
     "clock_size": 152,
     "clock_outline": true,
     "timer_size": 300,
-    "timer_outline": true
+    "timer_outline": true,
+    "tts_enabled": true
 }
