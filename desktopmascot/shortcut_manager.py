@@ -11,10 +11,11 @@ from sklearn.metrics.pairwise import cosine_similarity
 class ShortcutManager:
     """日本語ショートカットの管理・検索・実行を行うマネージャー"""
 
-    def __init__(self, base_dir, win_manager=None):
+    def __init__(self, base_dir, win_manager=None, config=None):
         self.base_dir = base_dir
         self.json_path = os.path.join(base_dir, "shortcuts.json")
         self.win_manager = win_manager
+        self.config = config  # tts_manager.config への参照（デフォルト値取得用）
         self.tokenizer = Tokenizer()
         self.vectorizer = TfidfVectorizer()
         self.tfidf_matrix = None
@@ -201,18 +202,42 @@ class ShortcutManager:
                 result["success"] = True
 
             elif action_type == "text_file":
-                file_path = value.get("path", "")
-                content = value.get("content", "")
-                if not file_path:
-                    # デフォルトでデスクトップに保存
-                    desktop = os.path.join(os.environ.get("USERPROFILE", ""), "Desktop")
-                    file_path = os.path.join(desktop, "output.txt")
+                # 新フォーマット: {"dir": ..., "filename": ..., "ext": ..., "content": ...}
+                if isinstance(value, dict):
+                    # デフォルト値をconfigから取得
+                    default_dir = os.path.join(os.environ.get("USERPROFILE", ""), "Desktop")
+                    default_ext = ".txt"
+                    if self.config:
+                        default_dir = self.config.get('text_file_default_dir', default_dir)
+                        default_ext = self.config.get('text_file_default_ext', default_ext)
+                    
+                    save_dir = value.get("dir", "").strip() or default_dir
+                    filename = value.get("filename", "output").strip() or "output"
+                    ext = value.get("ext", "").strip() or default_ext
+                    content = value.get("content", "")
+                    
+                    # 拡張子にドットがなければ付加
+                    if ext and not ext.startswith('.'):
+                        ext = '.' + ext
+                    
+                    file_path = os.path.join(save_dir, filename + ext)
+                else:
+                    # 旧フォーマット互換: 文字列の場合はそのままパスとして扱う
+                    file_path = str(value) if value else os.path.join(
+                        os.environ.get("USERPROFILE", ""), "Desktop", "output.txt")
+                    content = ""
+                
                 # 親ディレクトリを作成
                 parent = os.path.dirname(file_path)
                 if parent and not os.path.exists(parent):
                     os.makedirs(parent, exist_ok=True)
+                # 競合時は上書き
                 with open(file_path, 'w', encoding='utf-8') as f:
                     f.write(content)
+                # 作成後にファイルを開く
+                open_after = value.get("open_after", False) if isinstance(value, dict) else False
+                if open_after:
+                    os.startfile(file_path)
                 result["success"] = True
 
             elif action_type == "window":
@@ -244,8 +269,12 @@ class ShortcutManager:
         elif action_type == "command":
             return f"コマンド: {value}"
         elif action_type == "text_file":
-            path = value.get("path", "デスクトップ") if isinstance(value, dict) else str(value)
-            return f"テキスト生成: {path}"
+            if isinstance(value, dict):
+                fn = value.get('filename', 'output')
+                ext = value.get('ext', '.txt')
+                d = value.get('dir', 'デスクトップ') or 'デスクトップ'
+                return f"テキスト生成: {fn}{ext} → {d}"
+            return f"テキスト生成: {value}"
         elif action_type == "window":
             name = value.get("name", "") if isinstance(value, dict) else str(value)
             match = value.get("match", "") if isinstance(value, dict) else ""
