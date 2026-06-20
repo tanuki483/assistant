@@ -886,17 +886,42 @@ class MascotWindow:
             self.bubble.destroy()
             self.bubble = None
 
+    def _force_steal_focus(self, window, target_widget=None):
+        """Windows APIを使って強制的にウィンドウを最前面にしてフォーカスを奪う"""
+        window.lift()
+        try:
+            import ctypes
+            user32 = ctypes.windll.user32
+            hwnd = int(window.frame(), 16) if isinstance(window.frame(), str) else window.winfo_id()
+            fg_hwnd = user32.GetForegroundWindow()
+            if fg_hwnd:
+                fg_thread = user32.GetWindowThreadProcessId(fg_hwnd, None)
+                app_thread = user32.GetWindowThreadProcessId(hwnd, None)
+                if fg_thread != app_thread:
+                    user32.AttachThreadInput(fg_thread, app_thread, True)
+                    user32.SetForegroundWindow(hwnd)
+                    user32.SetFocus(hwnd)
+                    user32.AttachThreadInput(fg_thread, app_thread, False)
+                else:
+                    user32.SetForegroundWindow(hwnd)
+                    user32.SetFocus(hwnd)
+        except Exception as e:
+            print(f"Focus steal failed: {e}")
+        
+        window.focus_force()
+        if target_widget:
+            window.after(50, target_widget.focus_set)
 
     def _bind_enter_to_buttons(self, container):
         """container内の全Buttonに<Return>と<space>キーバインドを追加"""
         for widget in container.winfo_children():
             if isinstance(widget, tk.Button):
-                # widget.invoke()を使い、スペースキーではデフォルト処理を防ぐため'break'を返す
-                def invoke_and_break(e, w=widget):
+                def _force_invoke(e, w=widget):
                     w.invoke()
                     return 'break'
-                widget.bind('<Return>', lambda e, w=widget: w.invoke())
-                widget.bind('<KeyPress-space>', invoke_and_break)
+                widget.bind('<Return>', _force_invoke)
+                widget.bind('<space>', _force_invoke)
+                widget.bind('<KeyRelease-space>', lambda e: 'break')
             if widget.winfo_children():
                 self._bind_enter_to_buttons(widget)
 
@@ -1051,10 +1076,7 @@ class MascotWindow:
         if bx < self.display_info['x']: bx = self.display_info['x']
         self.shortcut_bubble.geometry(f"{cw}x{ch}+{bx}+{by}")
         
-        # ウィンドウをフォーカス強制取得してから入力欄にフォーカス
-        self.shortcut_bubble.lift()
-        self.shortcut_bubble.focus_force()
-        entry.focus_set()
+        self._force_steal_focus(self.shortcut_bubble, entry)
 
     def open_shortcut_create(self, initial_trigger="", shortcut_id=None):
         if hasattr(self, 'sc_create_bubble') and self.sc_create_bubble and self.sc_create_bubble.winfo_exists():
@@ -1108,7 +1130,8 @@ class MascotWindow:
         tk.Label(f_trig, text='指示文言(カンマ区切):', bg='white', font=('Meiryo', 8), anchor='w').pack(anchor='w')
         trig_val = ", ".join(sc_data['triggers']) if sc_data else initial_trigger
         triggers_var = tk.StringVar(value=trig_val)
-        tk.Entry(f_trig, textvariable=triggers_var, width=55, font=('Meiryo', 9)).pack(fill='x', padx=(2, 0))
+        trig_entry = tk.Entry(f_trig, textvariable=triggers_var, width=55, font=('Meiryo', 9))
+        trig_entry.pack(fill='x', padx=(2, 0))
         
         # 作業名を下に配置
         f_name = tk.Frame(frame, bg='white')
@@ -1337,6 +1360,9 @@ class MascotWindow:
         bx, by = self.x + self.width - cw + 20, self.y - ch - 10
         if bx < self.display_info['x']: bx = self.display_info['x']
         self.sc_create_bubble.geometry(f"{cw}x{ch}+{bx}+{by}")
+        
+        # 指示文言入力欄にフォーカス
+        self._force_steal_focus(self.sc_create_bubble, trig_entry)
 
     def open_shortcut_existing(self, new_trigger):
         if hasattr(self, 'sc_existing_bubble') and self.sc_existing_bubble and self.sc_existing_bubble.winfo_exists():
@@ -1411,6 +1437,9 @@ class MascotWindow:
         bx, by = self.x + self.width - cw + 20, self.y - ch - 10
         if bx < self.display_info['x']: bx = self.display_info['x']
         self.sc_existing_bubble.geometry(f"{cw}x{ch}+{bx}+{by}")
+        
+        # リストボックスにフォーカス
+        self._force_steal_focus(self.sc_existing_bubble, listbox)
 
     def open_shortcut_manager(self):
         if hasattr(self, 'sc_manage_bubble') and self.sc_manage_bubble and self.sc_manage_bubble.winfo_exists():
@@ -1511,6 +1540,9 @@ class MascotWindow:
         bx, by = self.x + self.width - cw + 20, self.y - ch - 10
         if bx < self.display_info['x']: bx = self.display_info['x']
         self.sc_manage_bubble.geometry(f"{cw}x{ch}+{bx}+{by}")
+        
+        # リストボックスにフォーカス
+        self._force_steal_focus(self.sc_manage_bubble, listbox)
 
 def main():
     root = tk.Tk()
