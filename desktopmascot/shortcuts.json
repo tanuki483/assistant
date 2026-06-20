@@ -1,0 +1,61 @@
+{
+    "shortcuts": [
+        {
+            "id": "edb6e6fe",
+            "name": "antigravityのマスコットのファイルを開きますか？",
+            "triggers": [
+                "マスコットのファイルを開いて"
+            ],
+            "actions": [
+                {
+                    "type": "open",
+                    "value": "C:\\Users\\user\\.gemini\\antigravity\\desktopmascot"
+                }
+            ],
+            "enabled": true
+        },
+        {
+            "id": "8c5ea1aa",
+            "name": "バックアップフォルダ（teset)を開きますか？",
+            "triggers": [
+                "バックアップフォルダを開いて"
+            ],
+            "actions": [
+                {
+                    "type": "open",
+                    "value": "C:\\Users\\user\\Desktop\\teset"
+                }
+            ],
+            "enabled": true
+        },
+        {
+            "id": "6a6adbc4",
+            "name": "ダウンロードフォルダを開きますか？",
+            "triggers": [
+                "ダウンロードフォルダを開いて"
+            ],
+            "actions": [
+                {
+                    "type": "open",
+                    "value": "C:\\Users\\user\\Downloads"
+                }
+            ],
+            "enabled": true
+        },
+        {
+            "id": "2881dbe6",
+            "name": "Speakを開きますか？",
+            "triggers": [
+                "Speakを開いて",
+                "スピークを開いて"
+            ],
+            "actions": [
+                {
+                    "type": "open",
+                    "value": "C:\\Users\\user\\OneDrive\\Speak"
+                }
+            ],
+            "enabled": true
+        }
+    ]
+}

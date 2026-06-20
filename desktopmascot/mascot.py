@@ -600,6 +600,15 @@ class MascotWindow:
                 tf_dir_default_var.set(d)
         tk.Button(tfd_f, text='参照', command=pick_tf_dir, bg='#f0f0f0', relief='solid', bd=1).pack(side='right')
         
+        # 【ショートカット】
+        tk.Label(_sf, text='【ショートカット】', bg='white', font=('Meiryo', 8, 'bold')).pack(anchor='w', pady=(10,0))
+        
+        sc_thresh_var = tk.DoubleVar(value=self.tts_manager.config.get('shortcut_threshold', 0.1))
+        sc_f = tk.Frame(_sf, bg='white')
+        sc_f.pack(fill='x', pady=2)
+        tk.Label(sc_f, text='一致判定閾値:', bg='white').pack(side='left')
+        tk.Entry(sc_f, textvariable=sc_thresh_var, width=8).pack(side='right')
+        
         # 【ショートカットキー】
         tk.Label(_sf, text='【ショートカットキー】', bg='white', font=('Meiryo', 8, 'bold')).pack(anchor='w', pady=(10,0))
         
@@ -640,6 +649,7 @@ class MascotWindow:
                 self.tts_manager.config['hotkey_mod1'] = hk_mod1_var.get()
                 self.tts_manager.config['hotkey_mod2'] = hk_mod2_var.get()
                 self.tts_manager.config['hotkey_key'] = hk_key_var.get()
+                self.tts_manager.config['shortcut_threshold'] = sc_thresh_var.get()
                 self.tts_manager.save_config()
                 # HotkeyManagerの設定を更新
                 if hasattr(self, '_hotkey_manager') and self._hotkey_manager:
@@ -881,10 +891,12 @@ class MascotWindow:
         """container内の全Buttonに<Return>と<space>キーバインドを追加"""
         for widget in container.winfo_children():
             if isinstance(widget, tk.Button):
-                cmd = widget.cget('command')
-                if cmd and callable(cmd):
-                    widget.bind('<Return>', lambda e, c=cmd: c())
-                    widget.bind('<space>', lambda e, c=cmd: c())
+                # widget.invoke()を使い、スペースキーではデフォルト処理を防ぐため'break'を返す
+                def invoke_and_break(e, w=widget):
+                    w.invoke()
+                    return 'break'
+                widget.bind('<Return>', lambda e, w=widget: w.invoke())
+                widget.bind('<KeyPress-space>', invoke_and_break)
             if widget.winfo_children():
                 self._bind_enter_to_buttons(widget)
 
@@ -903,6 +915,8 @@ class MascotWindow:
     def open_shortcut_input(self):
         if hasattr(self, 'shortcut_bubble') and self.shortcut_bubble and self.shortcut_bubble.winfo_exists():
             self.shortcut_bubble.destroy()
+            self.shortcut_bubble = None
+            return  # トグル: 既に開いていたら閉じるだけ
             
         self.shortcut_bubble = tk.Toplevel(self.root)
         self.shortcut_bubble.overrideredirect(True)
@@ -1037,6 +1051,9 @@ class MascotWindow:
         if bx < self.display_info['x']: bx = self.display_info['x']
         self.shortcut_bubble.geometry(f"{cw}x{ch}+{bx}+{by}")
         
+        # ウィンドウをフォーカス強制取得してから入力欄にフォーカス
+        self.shortcut_bubble.lift()
+        self.shortcut_bubble.focus_force()
         entry.focus_set()
 
     def open_shortcut_create(self, initial_trigger="", shortcut_id=None):
@@ -1149,6 +1166,8 @@ class MascotWindow:
                 simple_val = act_data['value'].get('filename', '')
             elif act_data['type'] == 'window' and is_dict:
                 simple_val = act_data['value'].get('name', '')
+            elif act_data['type'] == 'open' and is_dict:
+                simple_val = act_data['value'].get('path', '')
             elif is_dict:
                 simple_val = str(act_data['value'])
             else:
@@ -1156,11 +1175,16 @@ class MascotWindow:
             
             val_var = tk.StringVar(value=str(simple_val))
             
+            # open用の引数変数
+            open_args_var = tk.StringVar(value=', '.join(act_data['value'].get('args', [])) if is_dict and act_data['type'] == 'open' and isinstance(act_data['value'].get('args', []), list) else act_data['value'].get('args', '') if is_dict and act_data['type'] == 'open' else '')
+            
             # text_file用の変数
             tf_ext_var = tk.StringVar(value=act_data['value'].get('ext', '.txt') if is_dict and act_data['type'] == 'text_file' else '.txt')
             tf_dir_var = tk.StringVar(value=act_data['value'].get('dir', '') if is_dict and act_data['type'] == 'text_file' else '')
             tf_content_var = tk.StringVar(value=act_data['value'].get('content', '') if is_dict and act_data['type'] == 'text_file' else '')
             tf_open_after_var = tk.BooleanVar(value=act_data['value'].get('open_after', False) if is_dict and act_data['type'] == 'text_file' else False)
+            tf_open_notepad_var = tk.BooleanVar(value=act_data['value'].get('open_with_notepad', False) if is_dict and act_data['type'] == 'text_file' else False)
+            tf_protect_var = tk.BooleanVar(value=act_data['value'].get('protect', False) if is_dict and act_data['type'] == 'text_file' else False)
             
             # window用のmatch変数
             wnd_match_var = tk.StringVar(value=act_data['value'].get('match', 'starts_with') if is_dict and act_data['type'] == 'window' else 'starts_with')
@@ -1190,17 +1214,34 @@ class MascotWindow:
                         if d:
                             tf_dir_var.set(d)
                     tk.Button(tf_detail, text='参照', command=pick_dir, bg='#f0f0f0', relief='solid', bd=1).pack(side='left', padx=2)
-                    tk.Checkbutton(tf_detail, text='作成後に開く', variable=tf_open_after_var, bg='#f9f9f9', font=('Meiryo', 8)).pack(side='left', padx=10)
+                    tk.Checkbutton(tf_detail, text='作成後に開く', variable=tf_open_after_var, bg='#f9f9f9', font=('Meiryo', 8)).pack(side='left', padx=5)
+                    tk.Checkbutton(tf_detail, text='メモ帳で開く', variable=tf_open_notepad_var, bg='#f9f9f9', font=('Meiryo', 8)).pack(side='left', padx=5)
                     
                     cf = tk.Frame(row, bg='#f9f9f9')
                     cf.pack(fill='x', pady=2)
-                    tk.Label(cf, text='内容:', bg='#f9f9f9', font=('Meiryo', 8)).pack(side='left')
-                    tk.Entry(cf, textvariable=tf_content_var, width=40).pack(side='left', padx=2)
+                    tk.Label(cf, text='内容:', bg='#f9f9f9', font=('Meiryo', 8)).pack(anchor='w')
+                    _content_text = tk.Text(cf, width=40, height=3, font=('Meiryo', 8), wrap='word')
+                    _content_text.pack(fill='x', padx=2)
+                    _content_text.insert('1.0', tf_content_var.get())
+                    # Textウィジェットの内容をtf_content_varと同期するためのヘルパー
+                    def _sync_content_var(event=None, tv=tf_content_var, tw=_content_text):
+                        tv.set(tw.get('1.0', 'end-1c'))
+                    _content_text.bind('<KeyRelease>', _sync_content_var)
+                    _content_text.bind('<FocusOut>', _sync_content_var)
+                    
+                    # 上書き保護チェックボックス
+                    tk.Checkbutton(cf, text='上書き保護(1)', variable=tf_protect_var, bg='#f9f9f9', font=('Meiryo', 8)).pack(anchor='w')
                 elif t == 'window':
                     tk.Label(vf, text='ウィンドウ名:', bg='#f9f9f9', font=('Meiryo', 8)).pack(side='left')
                     tk.Entry(vf, textvariable=val_var, width=25).pack(side='left', padx=2)
                     tk.Label(vf, text='一致:', bg='#f9f9f9', font=('Meiryo', 8)).pack(side='left')
                     tk.OptionMenu(vf, wnd_match_var, 'starts_with', 'ends_with').pack(side='left', padx=2)
+                elif t == 'open':
+                    tk.Label(vf, text='パス/URL:', bg='#f9f9f9', font=('Meiryo', 8)).pack(side='left')
+                    tk.Entry(vf, textvariable=val_var, width=35).pack(side='left', padx=2)
+                    tf_detail.pack(fill='x', pady=2)
+                    tk.Label(tf_detail, text='引数(カンマ区切):', bg='#f9f9f9', font=('Meiryo', 8)).pack(side='left')
+                    tk.Entry(tf_detail, textvariable=open_args_var, width=35).pack(side='left', padx=2)
                 else:
                     tk.Label(vf, text='値:', bg='#f9f9f9', font=('Meiryo', 8)).pack(side='left')
                     tk.Entry(vf, textvariable=val_var, width=35).pack(side='left', padx=2)
@@ -1212,9 +1253,14 @@ class MascotWindow:
                 t = type_var.get()
                 v = val_var.get()
                 if t == 'text_file':
-                    v = {"dir": tf_dir_var.get(), "filename": v, "ext": tf_ext_var.get(), "content": tf_content_var.get() or "テスト", "open_after": tf_open_after_var.get()}
+                    v = {"dir": tf_dir_var.get(), "filename": v, "ext": tf_ext_var.get(), "content": tf_content_var.get() or "テスト", "open_after": tf_open_after_var.get(), "open_with_notepad": tf_open_notepad_var.get(), "protect": tf_protect_var.get()}
                 elif t == 'window':
                     v = {"match": wnd_match_var.get(), "name": v}
+                elif t == 'open':
+                    args_str = open_args_var.get().strip()
+                    if args_str:
+                        args = [a.strip() for a in args_str.split(',') if a.strip()]
+                        v = {"path": v, "args": args}
                 res = self.shortcut_manager.test_action({"type": t, "value": v})
                 import tkinter.messagebox as mb
                 mb.showinfo("テスト結果", self.shortcut_manager.format_result_detail(res), parent=self.sc_create_bubble)
@@ -1232,9 +1278,14 @@ class MascotWindow:
                 t = type_var.get()
                 v = val_var.get()
                 if t == 'text_file':
-                    v = {"dir": tf_dir_var.get(), "filename": v, "ext": tf_ext_var.get(), "content": tf_content_var.get(), "open_after": tf_open_after_var.get()}
+                    v = {"dir": tf_dir_var.get(), "filename": v, "ext": tf_ext_var.get(), "content": tf_content_var.get(), "open_after": tf_open_after_var.get(), "open_with_notepad": tf_open_notepad_var.get(), "protect": tf_protect_var.get()}
                 elif t == 'window':
                     v = {"match": wnd_match_var.get(), "name": v}
+                elif t == 'open':
+                    args_str = open_args_var.get().strip()
+                    if args_str:
+                        args = [a.strip() for a in args_str.split(',') if a.strip()]
+                        v = {"path": v, "args": args}
                 return {"type": t, "value": v}
             
             action_widgets.append(get_data)
@@ -1502,8 +1553,22 @@ def main():
     }
     
     def on_hotkey():
-        if mascots:
-            mascots[0].root.after(0, mascots[0].open_shortcut_input)
+        if not mascots:
+            return
+        # カーソル位置を取得してそのディスプレイのマスコットに表示
+        import ctypes
+        pt = ctypes.wintypes.POINT()
+        ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
+        cursor_x, cursor_y = pt.x, pt.y
+        
+        best_mascot = mascots[0]
+        for m in mascots:
+            di = m.display_info
+            if (di['x'] <= cursor_x < di['x'] + di['width'] and
+                di['y'] <= cursor_y < di['y'] + di['height']):
+                best_mascot = m
+                break
+        best_mascot.root.after(0, best_mascot.open_shortcut_input)
     
     hotkey_mgr = HotkeyManager(on_hotkey, hotkey_config)
     hotkey_mgr.start()
@@ -1517,6 +1582,16 @@ def main():
         tts_manager.stop()
         root.destroy()
     root.protocol("WM_DELETE_WINDOW", on_closing)
+
+    # 全マスコットの最前面属性を定期的に再適用
+    def _reapply_topmost():
+        for m in mascots:
+            try:
+                m.root.wm_attributes("-topmost", True)
+            except Exception:
+                pass
+        root.after(5000, _reapply_topmost)
+    root.after(5000, _reapply_topmost)
 
     root.mainloop()
 

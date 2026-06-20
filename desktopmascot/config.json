@@ -15,5 +15,10 @@
     "clock_outline": true,
     "timer_size": 300,
     "timer_outline": true,
-    "tts_enabled": true
+    "tts_enabled": true,
+    "text_file_default_ext": ".txt",
+    "text_file_default_dir": "C:\\Users\\user\\Desktop",
+    "hotkey_mod1": "none",
+    "hotkey_mod2": "shift",
+    "hotkey_key": "F"
 }

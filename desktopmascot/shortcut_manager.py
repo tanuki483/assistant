@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import uuid
 import subprocess
@@ -108,13 +109,26 @@ class ShortcutManager:
 
     # ========== TF-IDF 検索 ==========
 
+    @staticmethod
+    def _kata_to_hira(text):
+        """カタカナをひらがなに変換（U+30A1-U+30F6 → U+3041-U+3096）"""
+        result = []
+        for ch in text:
+            cp = ord(ch)
+            if 0x30A1 <= cp <= 0x30F6:
+                result.append(chr(cp - 0x60))
+            else:
+                result.append(ch)
+        return "".join(result)
+
     def _tokenize(self, text):
-        """Janomeで形態素解析し、スペース区切りの文字列に変換"""
+        """Janomeで形態素解析し、カタカナ→ひらがな正規化後にスペース区切りの文字列に変換"""
         try:
+            text = self._kata_to_hira(text)
             tokens = list(self.tokenizer.tokenize(text, wakati=True))
             return " ".join(tokens)
         except Exception:
-            return text
+            return self._kata_to_hira(text)
 
     def _rebuild_index(self):
         """全トリガーをTF-IDFベクトル化してインデックスを構築"""
@@ -159,7 +173,8 @@ class ShortcutManager:
         best_idx = scores.argmax()
         best_score = float(scores[best_idx])
 
-        if best_score < 0.1:
+        threshold = self.config.get('shortcut_threshold', 0.1) if self.config else 0.1
+        if best_score < threshold:
             return None, best_score
 
         shortcut_idx = self.trigger_map[best_idx]
@@ -190,7 +205,33 @@ class ShortcutManager:
 
         try:
             if action_type == "open":
-                os.startfile(value)
+                # 引数対応: valueがdictの場合 {"path": "...", "args": ["arg1", ...]}
+                if isinstance(value, dict):
+                    path = value.get("path", "")
+                    args = value.get("args", [])
+                    # 文字列の場合はカンマ区切りでリスト化
+                    if isinstance(args, str):
+                        args = [a.strip() for a in args.split(',') if a.strip()]
+                else:
+                    path = str(value)
+                    args = []
+                
+                if args:
+                    # 引数がある場合はsubprocessで起動
+                    ext = os.path.splitext(path)[1].lower()
+                    if ext == '.py':
+                        cmd = [sys.executable, path] + args
+                    elif ext == '.pyw':
+                        # pythonwを探す
+                        pythonw = os.path.join(os.path.dirname(sys.executable), 'pythonw.exe')
+                        if not os.path.exists(pythonw):
+                            pythonw = sys.executable
+                        cmd = [pythonw, path] + args
+                    else:
+                        cmd = [path] + args
+                    subprocess.Popen(cmd, creationflags=subprocess.CREATE_NO_WINDOW)
+                else:
+                    os.startfile(path)
                 result["success"] = True
 
             elif action_type == "command":
@@ -231,13 +272,26 @@ class ShortcutManager:
                 parent = os.path.dirname(file_path)
                 if parent and not os.path.exists(parent):
                     os.makedirs(parent, exist_ok=True)
-                # 競合時は上書き
+                # 上書き保護モード
+                protect = value.get("protect", False) if isinstance(value, dict) else False
+                if protect and os.path.exists(file_path):
+                    base, fext = os.path.splitext(file_path)
+                    counter = 1
+                    while os.path.exists(file_path):
+                        file_path = f"{base}({counter}){fext}"
+                        counter += 1
+                
                 with open(file_path, 'w', encoding='utf-8') as f:
                     f.write(content)
+                
                 # 作成後にファイルを開く
-                open_after = value.get("open_after", False) if isinstance(value, dict) else False
-                if open_after:
-                    os.startfile(file_path)
+                if isinstance(value, dict):
+                    open_after = value.get("open_after", False)
+                    open_with_notepad = value.get("open_with_notepad", False)
+                    if open_with_notepad:
+                        subprocess.Popen(['notepad.exe', file_path], creationflags=subprocess.CREATE_NO_WINDOW)
+                    elif open_after:
+                        os.startfile(file_path)
                 result["success"] = True
 
             elif action_type == "window":
@@ -265,6 +319,13 @@ class ShortcutManager:
         value = action.get("value", "")
 
         if action_type == "open":
+            if isinstance(value, dict):
+                path = value.get('path', '')
+                args = value.get('args', [])
+                if args:
+                    args_str = ', '.join(args) if isinstance(args, list) else str(args)
+                    return f"開く: {path} (引数: {args_str})"
+                return f"開く: {path}"
             return f"開く: {value}"
         elif action_type == "command":
             return f"コマンド: {value}"
